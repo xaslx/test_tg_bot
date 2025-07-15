@@ -3,6 +3,7 @@ import asyncio
 import os
 import logging
 from handlers import router
+from handlers_admin import router as admin_router
 from dotenv import load_dotenv
 from aiogram.client.default import DefaultBotProperties
 
@@ -15,7 +16,9 @@ async def main() -> None:
     bot: Bot = Bot(token=token, default=DefaultBotProperties(parse_mode='HTML'))
     dp: Dispatcher = Dispatcher()
 
+    dp.include_router(admin_router)
     dp.include_router(router)
+    
 
 
 

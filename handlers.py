@@ -9,9 +9,10 @@ from keyboards import (
     examples_keyboard, house_type_keyboard, confirm_type_keyboard
 )
 from aiogram.fsm.state import default_state
-from text import frame_text, brick_text, modular_text, unknown_text, menu_text
+from text import frame_text, brick_text, modular_text, unknown_text, menu_text, BUDGET_MAPPING, PLOT_MAPPING, TIMING_MAPPING
 import os
 from dotenv import load_dotenv
+from utils import save_application
 
 
 load_dotenv()
@@ -35,9 +36,10 @@ async def main_menu(callback: CallbackQuery, state: FSMContext):
 @router.message(CommandStart(), StateFilter(default_state))
 async def start_bot(message: Message, state: FSMContext):
     await message.answer(
-        text=('📌 Продолжая отвечать на вопросы бота, вы <b>соглашаетесь на\n'
-              'обработку персональных данных</b> согласно политике конфиденциальности.'),
+        text=('📌 Продолжая отвечать на вопросы бота, вы <a href="https://site-it.su/"><b>соглашаетесь на\n'
+              'обработку персональных данных</b></a> согласно политике конфиденциальности.'),
         reply_markup=start_keyboard(),
+        disable_web_page_preview=True,
     )
     await state.set_state(House.start)
 
@@ -81,6 +83,7 @@ async def exit_flow(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == 'type_brick', StateFilter(House.house_type))
 async def handle_brick(callback: CallbackQuery, state: FSMContext):
     text = brick_text()
+    await state.update_data(house_type_ru="Кирпичный")
     await callback.message.edit_text(text, reply_markup=confirm_type_keyboard())
     await state.set_state(House.confirm_brick)
 
@@ -88,6 +91,7 @@ async def handle_brick(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == 'type_frame', StateFilter(House.house_type))
 async def handle_frame(callback: CallbackQuery, state: FSMContext):
     text = frame_text()
+    await state.update_data(house_type_ru='Каркасный')
     await callback.message.edit_text(text, reply_markup=confirm_type_keyboard())
     await state.set_state(House.confirm_frame)
 
@@ -95,6 +99,7 @@ async def handle_frame(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == 'type_modular', StateFilter(House.house_type))
 async def handle_modular(callback: CallbackQuery, state: FSMContext):
     text = modular_text()
+    await state.update_data(house_type_ru='Модульный')
     await callback.message.edit_text(text, reply_markup=confirm_type_keyboard())
     await state.set_state(House.confirm_modular)
 
@@ -102,6 +107,7 @@ async def handle_modular(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == 'type_unknown', StateFilter(House.house_type))
 async def handle_unknown(callback: CallbackQuery, state: FSMContext):
     text = unknown_text()
+    await state.update_data(house_type_ru='Неизвестный тип')
     await callback.message.edit_text(text, reply_markup=confirm_type_keyboard())
     await state.set_state(House.confirm_undefined)
 
@@ -125,35 +131,55 @@ async def go_back_type(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(StateFilter(House.select_area))
 async def set_area(callback: CallbackQuery, state: FSMContext):
     await state.update_data(area=callback.data)
-    await callback.message.edit_text('У вас уже есть участок под строительство?', reply_markup=plot_keyboard())
+    await callback.message.edit_text(
+        'У вас уже есть участок под строительство?',
+        reply_markup=plot_keyboard()
+    )
     await state.set_state(House.select_plot)
-
 
 @router.callback_query(StateFilter(House.select_plot))
 async def set_plot(callback: CallbackQuery, state: FSMContext):
-    await state.update_data(plot=callback.data)
-    await callback.message.edit_text('Какой ориентировочный бюджет?', reply_markup=budget_keyboard())
+    plot_value = PLOT_MAPPING.get(callback.data, callback.data)
+    await state.update_data(
+        plot=callback.data,
+        plot_ru=plot_value
+    )
+    await callback.message.edit_text(
+        'Какой ориентировочный бюджет?',
+        reply_markup=budget_keyboard()
+    )
     await state.set_state(House.select_budget)
-
 
 @router.callback_query(StateFilter(House.select_budget))
 async def set_budget(callback: CallbackQuery, state: FSMContext):
-    await state.update_data(budget=callback.data)
-    await callback.message.edit_text('Когда планируете начать строительство?', reply_markup=time_keyboard())
+    budget_value = BUDGET_MAPPING.get(callback.data, callback.data)
+    await state.update_data(
+        budget=callback.data,
+        budget_ru=budget_value
+    )
+    await callback.message.edit_text(
+        'Когда планируете начать строительство?',
+        reply_markup=time_keyboard()
+    )
     await state.set_state(House.select_timing)
 
 
 @router.callback_query(StateFilter(House.select_timing))
 async def set_timing(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    msg = await callback.message.edit_text(
+    
+    timing_value = TIMING_MAPPING.get(callback.data, callback.data)
+    await state.update_data(
+        timing=callback.data,
+        timing_ru=timing_value
+    )
+    
+
+    await callback.message.edit_text(
         'Хотите оставить комментарий, пожелания или вопрос?\n(Можно пропустить)',
         reply_markup=comment_keyboard()
     )
-    await state.update_data(
-        timing=callback.data,
-        comment_msg_id=msg.message_id
-    )
+
     await state.set_state(House.comment)
 
 
@@ -226,14 +252,19 @@ async def set_name(message: Message, state: FSMContext):
         '👉 <a href="https://site-it.su/">Перейти на сайт</a>',
         reply_markup=ReplyKeyboardRemove(),
     )
-    data = await state.get_data()
     
     response = (
-        'Новая заявка\n'
-        f'▪ Имя: {data.get('name')}\n'
-        f'▪ Телефон: {data.get('phone')}\n'
+        '🏠 Новая заявка на строительство\n\n'
+        f'▪ Имя: {data.get('name', 'не указано')}\n'
+        f'▪ Телефон: {data.get('phone', 'не указан')}\n'
+        f'▪ Тип дома: {data.get('house_type_ru', 'не указан')}\n'
+        f'▪ Участок: {data.get('plot_ru', 'не указан')}\n'
+        f'▪ Бюджет: {data.get('budget_ru', 'не указан')}\n'
+        f'▪ Сроки строительства: {data.get('timing_ru', 'не указаны')}\n'
         f'▪ Комментарий: {data.get('comment', 'не указан')}'
     )
+
+    save_application(data=data)
     await bot.send_message(chat_id=int(ADMIN_ID), text=response)
     await state.clear()
 
